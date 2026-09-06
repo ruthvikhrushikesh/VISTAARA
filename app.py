@@ -15,7 +15,16 @@ import mlstac
 import tempfile
 import pandas as pd
 
-MODEL_DIR = r".\SEN2SRLite_RGBN_x4\SEN2SRLite\NonReference_RGBN_x4"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+
+MODEL_DIR = (
+    BASE_DIR
+    / "SEN2SRLite_RGBN_x4"
+    / "SEN2SRLite"
+    / "NonReference_RGBN_x4"
+)
 
 # -------------------------------------------------------------------
 # Configuration & CSS
