@@ -8,3 +8,4 @@ plotly
 streamlit-image-comparison
 mlstac
 pandas
+sen2sr
