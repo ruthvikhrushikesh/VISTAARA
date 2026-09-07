@@ -14,6 +14,7 @@ from streamlit_image_comparison import image_comparison
 import mlstac
 import tempfile
 import pandas as pd
+import requests
 
 from pathlib import Path
 
@@ -106,6 +107,19 @@ def load_and_preprocess_image(file_bytes):
         }
     os.remove(tmp_path)
     return image, profile, metadata
+
+# -------------------------------------------------------------------
+# Sample Data (GitHub raw links)
+# -------------------------------------------------------------------
+SAMPLE_RES_URL = "https://raw.githubusercontent.com/ruthvikhrushikesh/VISTAARA/main/26.tif"
+SAMPLE_BEFORE_URL = "https://raw.githubusercontent.com/ruthvikhrushikesh/VISTAARA/main/8_before.tif"
+SAMPLE_AFTER_URL = "https://raw.githubusercontent.com/ruthvikhrushikesh/VISTAARA/main/8_after.tif"
+
+@st.cache_data(show_spinner=False)
+def fetch_sample_bytes(url):
+    r = requests.get(url)
+    r.raise_for_status()
+    return r.content
 
 def process_super_resolution(lr_tensor, model, device, scale=4, patch_size=128):
     channels, height, width = lr_tensor.shape
@@ -224,17 +238,30 @@ if nav == "Change Detection (Before / After)":
         before_file = st.file_uploader("Upload Before Image (Sentinel-2 GeoTIFF)", type=["tif", "tiff"])
     with col2:
         after_file = st.file_uploader("Upload After Image (Sentinel-2 GeoTIFF)", type=["tif", "tiff"])
-    
-    if before_file and after_file:
+
+    use_sample_cd = st.button("📂 Use Sample Data (8_before.tif / 8_after.tif)")
+    if use_sample_cd:
+        st.session_state.use_sample_cd = True
+    if before_file or after_file:
+        st.session_state.use_sample_cd = False
+
+    before_bytes = before_file.getvalue() if before_file else (
+        fetch_sample_bytes(SAMPLE_BEFORE_URL) if st.session_state.get("use_sample_cd") else None
+    )
+    after_bytes = after_file.getvalue() if after_file else (
+        fetch_sample_bytes(SAMPLE_AFTER_URL) if st.session_state.get("use_sample_cd") else None
+    )
+
+    if before_bytes and after_bytes:
         try:
             with st.spinner("Processing Before Image..."):
-                b_image, b_profile, b_meta = load_and_preprocess_image(before_file.getvalue())
+                b_image, b_profile, b_meta = load_and_preprocess_image(before_bytes)
                 model = load_sen2srlite_model(device)
                 b_lr_tensor = torch.from_numpy(b_image[[3, 2, 1, 7]].astype(np.float32))
                 b_sr_image = process_super_resolution(b_lr_tensor, model, device)
                 
             with st.spinner("Processing After Image..."):
-                a_image, a_profile, a_meta = load_and_preprocess_image(after_file.getvalue())
+                a_image, a_profile, a_meta = load_and_preprocess_image(after_bytes)
                 a_lr_tensor = torch.from_numpy(a_image[[3, 2, 1, 7]].astype(np.float32))
                 a_sr_image = process_super_resolution(a_lr_tensor, model, device)
                 
@@ -314,22 +341,38 @@ if nav == "Change Detection (Before / After)":
 else:
     # 1. File Upload
     uploaded_file = st.sidebar.file_uploader("Upload Sentinel-2 GeoTIFF", type=["tif", "tiff"])
-    
-    if not uploaded_file:
+    use_sample_res = st.sidebar.button("📂 Use Sample Data (26.tif)")
+
+    if use_sample_res:
+        st.session_state.use_sample_res = True
+    if uploaded_file:
+        st.session_state.use_sample_res = False
+
+    if uploaded_file:
+        file_bytes = uploaded_file.getvalue()
+        file_name = uploaded_file.name
+    elif st.session_state.get("use_sample_res"):
+        file_bytes = fetch_sample_bytes(SAMPLE_RES_URL)
+        file_name = "26.tif"
+    else:
+        file_bytes = None
+        file_name = None
+
+    if not file_bytes:
         st.info("Please upload a Sentinel-2 GeoTIFF to begin analysis.")
         st.markdown("Status: <span class='vistaara-status'>● LOCAL AI ENGINE (Ready)</span>", unsafe_allow_html=True)
     else:
         # 2. Process Image (Cached)
         try:
             with st.spinner("Reading raster data..."):
-                image, profile, metadata = load_and_preprocess_image(uploaded_file.getvalue())
+                image, profile, metadata = load_and_preprocess_image(file_bytes)
         
             if metadata['count'] < 13:
                 st.error(f"Invalid Sentinel-2 TIFF. Found {metadata['count']} bands, expected at least 13.")
                 st.stop()
             
-            if "processed" not in st.session_state or st.session_state.uploaded_name != uploaded_file.name:
-                st.session_state.uploaded_name = uploaded_file.name
+            if "processed" not in st.session_state or st.session_state.uploaded_name != file_name:
+                st.session_state.uploaded_name = file_name
                 st.session_state.image = image
                 st.session_state.profile = profile
                 st.session_state.metadata = metadata
